@@ -1,0 +1,286 @@
+# Kubernetes Notes
+
+Kubernetes Nodes:
+- Control Plane/Cluster
+  - Assigns IPs from configured CIDR range
+  - Tracks node health every five seconds
+  - Enforces node taints
+
+- Worker nodes
+  - Each node name must be unique in the cluster
+  - Each worker node joins the cluster by executing the kubeadm command from the worker
+  - Background Processes
+    - Kubelet
+    - Container runtime interface (CRI)
+    - Kube-proxy
+    - Controller
+
+- K8s will always work to maintain state
+- Cluster authentication is handled by master nodes
+
+Processes:
+- Kubelet - Runs on all nodes in the cluster
+  - Runs as a linux daemon
+  - Runs on master and worker nodes
+  - Manages pod deployments on that node and monitors pod health
+
+- Kube-proxy - Runs on all cluster nodes
+  - Maps Kubernetes service traffic to backend pods (individual pod IPs are ephemeral)
+  - IPs on pods change when they go up and down - Kube Services have fixed IPs that is associated with backend pods
+
+- Container Runtime Interface (CRI)
+  - CRI must be running on all clustered nodes - usually containerd
+
+Kubernetes Pods:
+- Consists of one or more kubernetes containers
+- Pods are managed items in a kubernetes cluster  
+- Can be configured with resource requirements - pods can only be deployed to nodes with X GB of RAM left
+- Pod States:
+  - Pending: Pod needs to be scheduled onto a node
+  - Running: Pod is running on node with containers running
+  - Successed: Containers in the pod shutdown successfully
+  - Failed: Containers in pod did not terminate successfully
+  - Unknown: Usually indication of network issues
+- Container Probes:
+  - Startup Probe: Ensures containers in a pod are successfully started
+  - Readiness Probe: Endures containers in a pod are ready to accept traffic over the network
+  - Liveness Probe: Make sure container in the pod are generally healthy - issues with this probe will automatically restart the pod
+
+Apps:
+- StatefulSets: statful apps taht require persistent sotrage. App state is maintained in storage even if pod fails
+- ConfigMaps: Key-value pair storag efor data that can be read by pods
+- Secrets: Base64 encoded key-value pairs for sensitive data that can be read by pods
+- etcd cluster: Key-vlaue store containing cluster state data
+
+Namespaces:
+- Kubernetes use a default namespace - pods deployed are deployed into that default namespace unless explicitly deployed to another namespace
+- Namespaces are essentially folders that you can group resources in. Pod names can be duplicates across Namespaces
+- Some resources are cluster-wide - such as persistent volumes, nodes, and StorageClass
+- A given resource can only exist in a single namespace at a time
+- Namespaces cannot be nested
+- Some namespaces are system only - kube-system is a namespace for internal components and is not meant to have additional pods deployed into it
+
+ConfigMaps:
+- Key/Value pairs used to store information
+- Can be passed to the pods via CLI, YAML config files, environment variables, config files on a storage volume, or API calls from within a pod to a ConfigMap in the same namespace
+
+Deployment Autoscaling:
+- Deployment autoscaling requires a Horizontal Pod Autoscaler (HPA)
+- An HPA can scale out and in - to create and remove replicas
+
+ReplicaSets:
+- Keeps a specified number of ReplicaSets running at all times
+- pod templates defines details for deploying new pods
+- ReplicaSets 'own' a set of pods
+- ReplicaSets are often defined in a Kubernetes Deployment instead of being deployed directly
+
+StatefulSets:
+- In manifest files - use spec.selector component
+- Applications that retain data from previous app sessions
+- Apps are aware of previous app events even after restart
+- App replicas must use the same state data - either through data synchronization or using a centralized data source
+- First pod can be used as a primary replica that other pods clone from
+- Pods in a stateful set are removed in reverse order from how they were deployed
+
+StatefulSets vs Deployments:
+- Deployments:
+  - Pods use same storage volumes
+  - Pods are assigned a random identity
+  - It is userful for front-end web apps
+- StatefulSet:
+  - Each pod uses its own persistent volume
+  - Pods get a unique, reusable identity
+  - It is useful for backend databases
+
+Kubernetes Deployments:
+- In a single definition file for pods and replica sets
+- Definition files are declarative and in yaml format
+
+Kubernetes Secrets:
+- Secrets are stored senstive data but are not encrypted - they are base64 encoded
+- Sensitive data does not have to reside within pod code - it's stored in the etcd cluster store
+- Types of Secrets
+  - TLS Certs
+  - Opagque (default)
+  - Dockercfg
+  - SSH Secrets
+- Secrets can be accessed by pods via CLI commands, mounted file volumes, or environment variables
+
+etcd:
+- Stores key-value data in a hierarchical file system; used by a distributed system
+- Stores cluster state data such as desired state configs, current state including node resources and health, or which pods are running
+- Back up etcd to reduce downtime in case of an incident
+- Nodes in the cluster will appoint an etcd node leader. The node leader is the source of truth for cluster state. All other follower nodes get a read-only copy of etcd
+- etcd uses a replication scheme - all writes go to leader. If leader fails - another leader is elected
+- etcd listens for client traffic on port tcp/2379
+- etcd uses port tcp/2380 for etcd data replication
+- etcd runs as a pod in kube-system - If tailoring etcd configurations, it usually works best to use an odd number of nodes for larger clusters (3 to 5 etcd nodes)
+- cluster state is persisted in etcd
+
+Commands:
+- kubectl
+  - kubectl cluster-info # get cluster information
+  - kubectl get nodes # Get node information for nodes in the cluster
+  - kubectl apply # apply a kubernetes manifest file
+  - kubectl get pods # get list of running pods
+  - kubectl describe pod # show all metadat for a particular pod
+  - kubectl run nginx-pod --image=nginx # run pod with ngnix container (no manifest file)
+  - kubectl edit pod nginx-pod # view pod configuration - these are auto generated when pods are run from the cli
+  - kubectl delete pod # Delete pod
+  - kubectl delete pod --grace-period= # Default grace period of 30 seconds, but configurable if you want pod to shutdown gracefully 
+  - kubectl get replicaset # Get list of replicas
+  - kubectl scale <deployment> --replicas=4 # increase number of replicas in a deployment
+  - kubectl autoscale deployment/nginx-deployment --min=10 --max=15 --cpu-percent=90 # set parameters for autoscaling
+  - Namespaces
+    - kubectl get ns # get list namespaces
+    - kubectl create ns app1namespace # Create new namespace named app1namespaces
+    - kubectl apply -f nginx.yaml -n app1namespace # deploy manifest file into new namespace
+    - kubectl get pod -n kube-system # get information on kube-system namespace
+  - kubectl create secret generic db1creds --from-literal=password=mypassword # Create variable named password that - mypassword should be Base64 encoded when stored
+  - kubectl create secret generic secret1 --from-file=ssh-privatekey=/home/cblackwell/.ssh/id_rsa --from-file=ssh-publickey=/home/cblackwell/.ssh/id_rsa.pub # Create secrets using ssh private and public keys
+  - kubectl apply -f create_secret.yaml # create secret using secret manifest file
+
+- kubeadm
+  - kubeadm token create --print-join-command # Get cluster join command on the master nodes
+
+```
+# ConfigMap manifest example
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app1-config
+data:
+  port: 8084
+  language: "english"
+```
+
+```
+# ConfigMap using environment variables - the pod would have an environment variable named port populated with a value from the configMapKeyRef
+apiVersion: v1
+kind: Pod
+metadata:
+  name: busybox
+spec:
+  containers:
+    - name: busybox-container
+    - image: gcr.io/google_containers/busybox
+env:
+  - name: port
+    valueFrom:
+      configMapKeyRef:
+        name: app1-config
+        key: port
+```
+
+```
+# ConfigMap using a mounted pod volume
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod1
+spec:
+  containers:
+  - name: redispod
+    image: redis
+volumeMounts:
+  - name: configmap1
+    mountPath: "/etc/configmap1"
+    readOnly: true
+  volumes:
+  - name: configmap1
+    configMap:
+      name: myconfigmap
+```
+
+```
+# Replica set manifest file example
+apiVersion: apps/v1
+kind: ReplicaSets
+metadata:
+  name: frontend
+  labels:
+    app: guestbook
+    tier: frontend
+spec:
+  # moify repliacs according to your case
+  replicas: 3
+
+selector:
+  matchLabels:
+    tier: frontend
+  template:
+    metadata:
+      labels:
+        tier: frontend
+    spec:
+      containers:
+      - name: caddy-container
+        image: caddy
+```
+
+```
+# Example manifest file to deploy a pod with a container named redis-container
+apiVersion: v1
+kind: Pod
+metadata:
+  name: redis-pool
+    labels:
+      app: redis-app1
+spec:
+  containers:
+  - name: redis-container
+    image: redis
+```
+
+```
+# Example manifest file with ReplicaSet definition
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-loadbalancer-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+```
+
+```
+# manifest file to create secrets
+apiVersion: v1
+kind: Secrets:
+metadata:
+  name: db1-creds
+type: Opaque
+data:
+  username: <Base64 encoded string>
+  password: <Base64 encoded string>
+```
+
+```
+# Consuming Secrets in a pod - from within the container the password should be available in the $DB_PW environment variable
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod1
+spec:
+  containers:
+  - name: nginx-container
+    image: nginx
+env:
+- name: DB_PW
+  valueFrom:
+    secretKeyRef:
+      name: dbpassword
+      key: password
+```
